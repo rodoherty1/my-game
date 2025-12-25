@@ -7,6 +7,7 @@
 --  ##  ##   ###  ##     ##    
 -- #### ##    ## ####    ##  
 
+
 -- Initialization functions for game setup
 
 function load_hiscore()
@@ -40,31 +41,30 @@ function init_player()
     old_x = player_x
 end
 
-function init_magnet()
-    magnet_active = false
-    magnet_timer = 0
-    magnet_range = 40
-    -- how far the "pull" reaches
-end
+
 
 function init_bonuses()
+    -- Bonus type definitions (static metadata)
     bonuses = {
-        { spr = 14, col = 14, name = "magnet", val = 2 } -- pink: Magnet
+        { spr = 14, name = "magnet", range = 40, duration = 300 }
     }
 
-    init_magnet()
+    -- Runtime state for active effects
+    active_effects = {
+        magnet = { active = false, timer = 0 }
+    }
 
-    -- We'll store the active bonus here
+    -- We'll store the active bonus falling object here
     current_bonus = nil
 end
 
-function spawn_gift()
-    gift_x = flr(rnd(120))
-    gift_y = -10
+-- function spawn_gift()
+--     gift_x = flr(rnd(120))
+--     gift_y = -10
 
-    -- pick a random bonus from our list
-    current_bonus = bonuses[flr(rnd(#bonuses)) + 1]
-end
+--     -- pick a random bonus from our list
+--     current_bonus = bonuses[flr(rnd(#bonuses)) + 1]
+-- end
 
 function initialise_snow()
     snow_height = 0
@@ -81,6 +81,22 @@ function initialise_snow()
     end
 end
 
+function initialise_gift_variables()
+    -- 12 (Blue), 14 (Pink), 11 (Green), or 8 (Red)
+    gift_colors = { 12, 14, 11, 8 }
+    -- Pick a random color for the box:
+    gift_colour = select_new_gift_color()
+
+    -- gift variables
+    gift_x = flr(rnd(120))
+    -- start at top
+    gift_y = 0
+    -- how fast it falls
+    gift_spd = 2
+
+    gift_sprite = 4
+end
+
 function _init()
     -- use a unique name for your game
     cartdata("santa_catcher_2025")
@@ -92,10 +108,6 @@ function _init()
 
     camera_shake_amount = 0
 
-    -- 12 (Blue), 14 (Pink), 11 (Green), or 8 (Red)
-    gift_colors = { 12, 14, 11, 8 }
-    -- Pick a random color for the box:
-    gift_colour = select_new_gift_color()
 
     -- Which screen are we on?
     main_play_mode = 0
@@ -113,14 +125,7 @@ function _init()
     player_sprite = 1
     hat_sprite = 3
 
-    -- gift variables
-    gift_x = flr(rnd(120))
-    -- start at top
-    gift_y = 0
-    -- how fast it falls
-    gift_spd = 2
-
-    gift_sprite = 4
+    initialise_gift_variables()
 
     initialise_snow()
 end
@@ -211,10 +216,11 @@ function draw_player()
         false -- [NEW] flip_y (we don't want it upside down!)
     )
 
-    if magnet_active then
+    if active_effects.magnet.active then
         -- draw a pulsing circle
         -- circ(x, y, radius, color)
         local pulse = 2 + sin(time()) * 2
+        local magnet_range = bonuses[1].range
         circ(player_x + 4, player_y + 4, magnet_range + pulse, 12)
     end
 end
@@ -284,40 +290,12 @@ end
 
 -- Update functions for game logic and state management
 
-function update_magnet()
-    -- If magnet is active, count down
-    if magnet_timer > 0 then
-        magnet_timer -= 1
-        magnet_active = true
-    else
-        magnet_active = false
-    end
-
-    -- Inside your fruit/gift loop:
-    if magnet_active then
-        -- calculate distance on the X axis
-        local dx_dist = player_x - gift_x
-
-        -- if within range, move the gift toward the player
-        if abs(dx_dist) < magnet_range then
-            -- 0.1 is the 'pull strength'
-            gift_x += dx_dist * 0.1
-        end
-    end
-end
-
 function update_camera_shake()
     -- decrease the shake amount every frame
     if camera_shake_amount > 0 then
         camera_shake_amount *= 0.8 -- shrink by 20% each frame
         if (camera_shake_amount < 0.1) camera_shake_amount = 0
     end
-end
-
-function gift_missed()
-    lives -= 1
-    camera_shake_amount = 4
-    -- start the shake!
 end
 
 function update_player()
@@ -339,6 +317,36 @@ function update_player()
     -- Save current x for the next frame
     old_x = player_x
 end
+
+
+-- ##     ## ########  ########     ###    ######## ########     ######   #### ######## ######## 
+-- ##     ## ##     ## ##     ##   ## ##      ##    ##          ##    ##   ##  ##          ##    
+-- ##     ## ##     ## ##     ##  ##   ##     ##    ##          ##         ##  ##          ##    
+-- ##     ## ########  ##     ## ##     ##    ##    ######      ##   ####  ##  ######      ##    
+-- ##     ## ##        ##     ## #########    ##    ##          ##    ##   ##  ##          ##    
+-- ##     ## ##        ##     ## ##     ##    ##    ##          ##    ##   ##  ##          ##    
+ -- #######  ##        ########  ##     ##    ##    ########     ######   #### ##          ##   
+
+function gift_missed()
+    lives -= 1
+    camera_shake_amount = 4
+    -- start the shake!
+end
+
+-- helper function to respawn gift
+function reset_gift()
+    gift_x = flr(rnd(120))
+
+    -- start slightly off screen
+    gift_y = -10
+
+    -- make it harder over time!
+    gift_spd += 0.1
+
+    -- Pick a random color for the box:
+    gift_colour = select_new_gift_color()
+end
+
 
 function update_gift()
     -- 2. move gift
@@ -364,6 +372,40 @@ function check_game_over()
     -- 5. game over check
     if (lives < 0) then
         game_mode = game_over_mode
+    end
+end
+
+
+
+-- ##     ## ########  ########     ###    ######## ########    ########   #######  ##    ## ##     ##  ######  
+-- ##     ## ##     ## ##     ##   ## ##      ##    ##          ##     ## ##     ## ###   ## ##     ## ##    ## 
+-- ##     ## ##     ## ##     ##  ##   ##     ##    ##          ##     ## ##     ## ####  ## ##     ## ##       
+-- ##     ## ########  ##     ## ##     ##    ##    ######      ########  ##     ## ## ## ## ##     ##  ######  
+-- ##     ## ##        ##     ## #########    ##    ##          ##     ## ##     ## ##  #### ##     ##       ## 
+-- ##     ## ##        ##     ## ##     ##    ##    ##          ##     ## ##     ## ##   ### ##     ## ##    ## 
+ -- #######  ##        ########  ##     ##    ##    ########    ########   #######  ##    ##  #######   ######  
+function update_magnet_effect()
+    local magnet = active_effects.magnet
+    
+    -- If magnet is active, count down
+    if magnet.timer > 0 then
+        magnet.timer -= 1
+        magnet.active = true
+    else
+        magnet.active = false
+    end
+
+    -- Pull the gift toward player if magnet is active
+    if magnet.active then
+        -- calculate distance on the X axis
+        local dx_dist = player_x - gift_x
+        local magnet_range = bonuses[1].range
+
+        -- if within range, move the gift toward the player
+        if abs(dx_dist) < magnet_range then
+            -- 0.1 is the 'pull strength'
+            gift_x += dx_dist * 0.1
+        end
     end
 end
 
@@ -405,9 +447,9 @@ function apply_bonus(type)
     sfx(3)
 
     if type == "magnet" then
-        -- Activate the magnet logic we wrote earlier
-        magnet_active = true
-        magnet_timer = 300 -- lasts about 10 seconds
+        -- Activate the magnet effect
+        active_effects.magnet.active = true
+        active_effects.magnet.timer = bonuses[1].duration
     end
 end
 
@@ -427,8 +469,22 @@ function update_snow_state()
     end
 end
 
+-- ##     ## ########  ########     ###    ######## ########     ######      ###    ##     ## ########  ######  ########    ###    ######## ######## 
+-- ##     ## ##     ## ##     ##   ## ##      ##    ##          ##    ##    ## ##   ###   ### ##       ##    ##    ##      ## ##      ##    ##       
+-- ##     ## ##     ## ##     ##  ##   ##     ##    ##          ##         ##   ##  #### #### ##       ##          ##     ##   ##     ##    ##       
+-- ##     ## ########  ##     ## ##     ##    ##    ######      ##   #### ##     ## ## ### ## ######    ######     ##    ##     ##    ##    ######   
+-- ##     ## ##        ##     ## #########    ##    ##          ##    ##  ######### ##     ## ##             ##    ##    #########    ##    ##       
+-- ##     ## ##        ##     ## ##     ##    ##    ##          ##    ##  ##     ## ##     ## ##       ##    ##    ##    ##     ##    ##    ##       
+ -- #######  ##        ########  ##     ##    ##    ########     ######   ##     ## ##     ## ########  ######     ##    ##     ##    ##    ######## 
+
+function update_active_effects()
+    -- Update all currently active effects
+    update_magnet_effect()
+    -- Future: update_shield_effect(), update_speed_boost_effect(), etc.
+end
+
 function update_game_state()
-    update_magnet()
+    update_active_effects()
 
     update_player()
 
@@ -469,19 +525,6 @@ function _update()
     end
 end
 
--- helper function to respawn gift
-function reset_gift()
-    gift_x = flr(rnd(120))
-
-    -- start slightly off screen
-    gift_y = -10
-
-    -- make it harder over time!
-    gift_spd += 0.1
-
-    -- Pick a random color for the box:
-    gift_colour = select_new_gift_color()
-end
 
 function shake()
     local sx = 4 - rnd(8)
