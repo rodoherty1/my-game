@@ -1,9 +1,7 @@
 pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
-#include my-game/init.lua
-#include my-game/update.lua
-#include my-game/draw.lua
+#include my-game/code.lua
 
 __gfx__
 00000000000000000044440000007700007007000000000000000000000000000000000000000000000000000000000000000000000000000660066000000000
