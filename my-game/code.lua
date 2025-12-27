@@ -445,7 +445,7 @@ function check_catch_or_miss()
     -- simple distance check: if gift is close to player
     if (abs(gift_x - player_x) < hit_width / 2 and abs(sleigh_y - gift_y) < 8) then
         score += 1
-        sfx(0) -- play sound 0 (make sure to draw a sound in sfx editor!)
+        -- sfx(0) -- play sound 0 (make sure to draw a sound in sfx editor!)
         reset_gift()
     end
 
