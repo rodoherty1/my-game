@@ -16,8 +16,9 @@ ID_PLAYER1, ID_PLAYER2, ID_PLAYER3 = 1, 2, 3
 
 function init_profiles()
     profiles = {
-        { name = "Rob", hi = 0 },
-        { name = "Holly", hi = 0 }
+        { name = "rob", hi = 0 },
+        { name = "holly", hi = 0 },
+        { name = "ayesha", hi = 0 }
     }
     -- This index tracks who is currently playing
     current_profile_idx = 1
@@ -49,13 +50,16 @@ end
 
 function init_player()
 
-    player_sprite = 1
+    player_sprite = 8
     hat_sprite = 3
+    single_sleigh_sprite = 5
+    double_sleigh_left_sprite = 6
 
     -- game state variables
     player_x = 60
     -- player horizontal position
     player_y = 110
+    sleigh_y = player_y + 4
 
     -- previous frame position
     old_x = player_x
@@ -66,19 +70,22 @@ end
 function init_bonuses()
     -- Bonus type definitions (static metadata)
     bonuses = {
-        { spr = 14, type = BONUS_TYPE.MAGNET, range = 40, duration = 300 },
-        { spr = 15, type = BONUS_TYPE.FREEZE, duration = 300 }
+        [BONUS_TYPE.MAGNET] = { spr = 14, type = BONUS_TYPE.MAGNET, range = 40, duration = 300 },
+        [BONUS_TYPE.FREEZE] = { spr = 15, type = BONUS_TYPE.FREEZE, duration = 300 },
+        [BONUS_TYPE.DOUBLE_SLEIGH] = { spr = 5, type = BONUS_TYPE.DOUBLE_SLEIGH, duration = 300 }
     }
 
     -- Runtime state for active effects
     active_effects = {
         magnet = { active = false, timer = 0 },
-        freeze = { active = false, timer = 0 }
+        freeze = { active = false, timer = 0 },
+        double_sleigh = { active = false, timer = 0 }
     }
 
     bonus_actions = {
         [BONUS_TYPE.MAGNET] = activate_magnet_bonus,
-        [BONUS_TYPE.FREEZE] = activate_freeze_bonus
+        [BONUS_TYPE.FREEZE] = activate_freeze_bonus,
+        [BONUS_TYPE.DOUBLE_SLEIGH] = activate_double_sleigh_bonus
     }
 
     -- We'll store the active bonus falling object here
@@ -118,11 +125,24 @@ end
 
 function init_constants()
     -- constants
-    BONUS_TYPE = { MAGNET=1, FREEZE=2 }    
+    BONUS_TYPE = { MAGNET=1, FREEZE=2, DOUBLE_SLEIGH=3 }
 
-    COLOURS = { LIGHT_GREY=6, WHITE=7, RED=8, GOLD=10, LIGHT_GREEN=11, BLUE=12 }
+    COLOURS = { LIGHT_GREY=6, WHITE=7, RED=8, GOLD=10, LIGHT_GREEN=11, BLUE=12, PINK=14 }
 
-    GAME_MODES = { PLAY=0, GAMEOVER=1, TITLE_SCREEN=2 }
+    GAME_MODES = { PLAY=0, GAME_OVER=1, TITLE_SCREEN=2 }
+end
+
+function init_global_variables()
+    score = 0
+    hi_score = 0
+    lives = 3
+
+    -- player velocity
+    dx = 0
+
+    camera_shake_amount = 0
+
+    input_delay = 0 -- to prevent keyboard/trackpad input spamming
 end
 
 function enable_title_screen()
@@ -133,6 +153,8 @@ function _init()
     -- use a unique name for your game
     cartdata("santa_catcher_2025")
     init_constants()
+    init_global_variables()
+
     init_profiles()
     enable_title_screen()
 
@@ -141,9 +163,6 @@ function _init()
     initialise_gift_variables()
 
     init_bonuses()
-
-    camera_shake_amount = 0
-
     init_player()
 
 
@@ -207,6 +226,12 @@ end
 function draw_player()
     -- draw player (sprite 1)
     spr(player_sprite, player_x, player_y)
+
+    if active_effects.double_sleigh.active then
+        spr(double_sleigh_left_sprite, player_x - 4, sleigh_y, 2, 1) 
+    else
+        spr(single_sleigh_sprite, player_x, sleigh_y)
+    end
 
     -- Calculate Stretch amount
     -- abs(dx) makes sure the stretch is positive regardless of direction
@@ -285,7 +310,6 @@ end
 
 
 function draw_title_screen()
-    cls(0)
     print("select your player:", 30, 40, COLOURS.LIGHT_GREY)
     
     for i=1,#profiles do
@@ -302,30 +326,22 @@ function draw_title_screen()
         print("record: " .. profiles[i].hi, 85, 55 + (i * 10), 5)
     end
 
-    debug_input()
-
-    local space_pressed = stat(30) and stat(31) == " "
-    local trackpad_clicked = stat(34) > 0
-
-    if (space_pressed or trackpad_clicked) then
-        start_game()
-    end
-
+    -- debug_input()
 end
 
 
 function draw_gameover_screen()
     -- Draw Game Over Screen
-    print("g a m e   o v e r", 40, 50, COLOURS.WHITE)
-    print("final score: " .. score, 42, 60, COLOURS.BLUE)
+    print("G a m e   O v e r", 40, 50, COLOURS.WHITE)
+    print("Final Score: " .. score, 42, 60, COLOURS.BLUE)
+    if (score > profiles[current_profile_idx].hi) then
+        print("New High Score!", 38, 70, COLOURS.GOLD)
+    end
     print("click to try again", 35, 80, COLOURS.LIGHT_GREY)
 end
 
 function _draw()
-    camera(0, 0)
-    -- reset camera at start of every frame
     cls()
-    -- clear screen
 
     if current_game_mode == GAME_MODES.PLAY then
         draw_camera_shake()
@@ -333,7 +349,7 @@ function _draw()
         reset_camera()
     elseif current_game_mode == GAME_MODES.TITLE_SCREEN then
         draw_title_screen()
-    elseif current_game_mode == GAME_MODES.GAMEOVER then
+    elseif current_game_mode == GAME_MODES.GAME_OVER then
         draw_gameover_screen()
     end
 end
@@ -417,9 +433,17 @@ function update_gift()
     -- Use the scale here
     gift_y += (gift_spd * time_scale)
     
+    check_catch_or_miss()
+end
+
+function check_catch_or_miss()
+
+    local hit_width = 16
+    if (active_effects.double_sleigh.active) hit_width = 24
+
     -- Check collision (catching the gift)
     -- simple distance check: if gift is close to player
-    if (abs(player_x - gift_x) < 8 and abs(player_y - gift_y) < 8) then
+    if (abs(gift_x - player_x) < hit_width / 2 and abs(sleigh_y - gift_y) < 8) then
         score += 1
         sfx(0) -- play sound 0 (make sure to draw a sound in sfx editor!)
         reset_gift()
@@ -436,7 +460,7 @@ end
 function check_game_over()
     -- 5. game over check
     if (lives < 0) then
-        current_game_mode = GAME_MODES.GAMEOVER
+        current_game_mode = GAME_MODES.GAME_OVER
     end
 end
 
@@ -486,7 +510,19 @@ function update_freeze_effect()
     end
 end
 
+function update_double_sleigh_effect()
+    local d = active_effects.double_sleigh
+    if d.timer > 0 then
+        d.timer -= 1
+        d.active = true
+    else
+        d.active = false
+    end
+end
+
 function spawn_bonus()
+    if (current_bonus != nil) return -- only one at a time
+
     -- 1. Choose a random type from our table
     local type_index = flr(rnd(#bonuses)) + 1
     local picked = bonuses[type_index]
@@ -558,10 +594,17 @@ function activate_freeze_bonus()
     active_effects.freeze.timer = bonuses[BONUS_TYPE.FREEZE].duration
 end
 
+function activate_double_sleigh_bonus()
+    -- Activate the double sleigh effect
+    active_effects.double_sleigh.active = true
+    active_effects.double_sleigh.timer = bonuses[BONUS_TYPE.DOUBLE_SLEIGH].duration
+end
+
 function update_active_effects()
     -- Update all currently active effects
     update_magnet_effect()
     update_freeze_effect()
+    update_double_sleigh_effect()
 end
 
 function update_game_state()
@@ -572,7 +615,8 @@ function update_game_state()
     update_gift()
 
     -- Occurs rarely (e.g., 1% chance every 10 seconds)
-    if rnd(500) < 1 then
+    if rnd(100) < 1 then
+    -- if rnd(500) < 1 then
         spawn_bonus()
     end
 
@@ -611,8 +655,11 @@ function update_title_screen()
     
     -- Keep the selection within the list limits
     if (current_profile_idx < 1) current_profile_idx = #profiles
-    if (current_profile_idx > #profiles) current_profile_idx = 1
-    
+    if (current_profile_idx > #profiles) current_profile_idx = 1    
+
+    if check_confirm() then
+        start_game()
+    end
 end
 
 
@@ -637,24 +684,40 @@ function start_game()
     active_effects.magnet.timer = 0
     active_effects.freeze.active = false
     active_effects.freeze.timer = 0
+    active_effects.double_sleigh.active = false
+    active_effects.double_sleigh.timer = 0
     
     -- Set the high score to the selected profile's record
     hi_score = profiles[current_profile_idx].hi
 end
 
+function check_confirm() 
+    -- If we are in 'cooldown', ignore all inputs
+    if (input_delay > 0) return false
+    
+    local pressed = false
+    local space_pressed = stat(30) and stat(31) == " "
+    local trackpad_clicked = stat(34) > 0
+    
+    if (space_pressed or trackpad_clicked) then
+        -- Set a 10-frame delay (1/3rd of a second)
+        input_delay = 10 
+        return true
+    end
+    return false
+end
 
 function update_gameover_screen()
     -- Save the score for the CURRENT profile before leaving
     save_current_score()
 
-    -- Check for button press/click to return to menu
-    if btn(4) or btn(5) or stat(34) > 0 then
+    if check_confirm() then
         current_game_mode = GAME_MODES.TITLE_SCREEN
     end
 end
 
 function _update()
-    print("update mode: " .. tostr(current_game_mode), 0, 0, 7)
+    if (input_delay > 0) input_delay -= 1
     if current_game_mode == GAME_MODES.PLAY then
         update_camera_shake()
         update_game_state()
